@@ -15,8 +15,10 @@
 
 #include <gtest/gtest.h>
 
+#include <openssl/bn.h>
 #include <openssl/bytestring.h>
 #include <openssl/curve25519.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/mem.h>
 #include <openssl/rand.h>
@@ -803,6 +805,91 @@ TEST_P(TrustTokenProtocolTest, ExtraDataIssuanceResponse) {
       TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index,
                                          response2.data(), response2.size()));
   ASSERT_FALSE(tokens);
+}
+
+TEST_P(TrustTokenProtocolTest, NonCanonicalProofScalar) {
+  ASSERT_NO_FATAL_FAILURE(SetupContexts());
+
+  uint8_t *request = nullptr, *response = nullptr;
+  size_t request_len, response_len;
+  if (use_message()) {
+    ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance_over_message(
+        client.get(), &request, &request_len, 1, kMessage, sizeof(kMessage)));
+  } else {
+    ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance(
+        client.get(), &request, &request_len, 1));
+  }
+  bssl::UniquePtr<uint8_t> free_request(request);
+  size_t tokens_issued;
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_issue(
+      issuer.get(), &response, &response_len, &tokens_issued, request,
+      request_len, KeyID(0), /*private_metadata=*/0, /*max_issuance=*/1));
+  bssl::UniquePtr<uint8_t> free_response(response);
+  ASSERT_EQ(1u, tokens_issued);
+
+  CBS response_cbs, proof;
+  CBS_init(&response_cbs, response, response_len);
+  uint16_t count;
+  uint32_t key_id;
+  ASSERT_TRUE(CBS_get_u16(&response_cbs, &count));
+  ASSERT_EQ(1u, count);
+  ASSERT_TRUE(CBS_get_u32(&response_cbs, &key_id));
+  ASSERT_EQ(KeyID(0), key_id);
+  const size_t kPointLen = 1 + 2 * (384 / 8);
+  size_t token_len = method()->has_private_metadata
+                         ? TRUST_TOKEN_NONCE_SIZE + 2 * kPointLen
+                         : kPointLen;
+  if (method() == TRUST_TOKEN_experiment_v1()) {
+    token_len += 4;
+  }
+  ASSERT_TRUE(CBS_skip(&response_cbs, token_len));
+  ASSERT_TRUE(CBS_get_u16_length_prefixed(&response_cbs, &proof));
+  ASSERT_EQ(0u, CBS_len(&response_cbs));
+
+  const BIGNUM *order = EC_GROUP_get0_order(EC_group_p384());
+  const size_t scalar_len = BN_num_bytes(order);
+  ASSERT_EQ(48u, scalar_len);
+  const size_t num_scalars = method()->has_private_metadata ? 9 : 2;
+  ASSERT_EQ(num_scalars * scalar_len, CBS_len(&proof));
+  const size_t proof_offset = CBS_data(&proof) - response;
+  std::vector<uint8_t> invalid_scalar(scalar_len);
+  ASSERT_TRUE(BN_bn2bin_padded(invalid_scalar.data(), invalid_scalar.size(),
+                               order));
+
+  for (unsigned encoding = 0; encoding < 2; encoding++) {
+    SCOPED_TRACE(encoding);
+    if (encoding == 1) {
+      std::fill(invalid_scalar.begin(), invalid_scalar.end(), 0xff);
+    }
+    for (size_t i = 0; i < num_scalars; i++) {
+      SCOPED_TRACE(i);
+      std::vector<uint8_t> invalid_response(response, response + response_len);
+      std::copy(invalid_scalar.begin(), invalid_scalar.end(),
+                invalid_response.begin() + proof_offset + i * scalar_len);
+      ERR_clear_error();
+      size_t key_index;
+      bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens(
+          TRUST_TOKEN_CLIENT_finish_issuance(
+              client.get(), &key_index, invalid_response.data(),
+              invalid_response.size()));
+      ASSERT_FALSE(tokens);
+      // Reject the encoding during parsing, before using an unreduced scalar
+      // in proof arithmetic. A later invalid-proof error is insufficient.
+      const uint32_t error = ERR_peek_last_error();
+      EXPECT_EQ(ERR_LIB_TRUST_TOKEN, ERR_GET_LIB(error));
+      EXPECT_EQ(TRUST_TOKEN_R_DECODE_FAILURE, ERR_GET_REASON(error));
+      ERR_clear_error();
+    }
+  }
+
+  // Rejected encodings must not consume the pending issuance state.
+  size_t key_index;
+  bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens(
+      TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, response,
+                                         response_len));
+  ASSERT_TRUE(tokens);
+  EXPECT_EQ(1u, sk_TRUST_TOKEN_num(tokens.get()));
+  EXPECT_EQ(0u, key_index);
 }
 
 TEST_P(TrustTokenProtocolTest, TruncatedRedemptionRequest) {

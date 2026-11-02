@@ -36,6 +36,7 @@
 #include "../crypto/internal.h"
 #include "../crypto/test/file_util.h"
 #include "../crypto/test/test_util.h"
+#include "../crypto/x509/internal.h"
 #include "internal.h"
 #include "ssl_common_test.h"
 
@@ -200,6 +201,115 @@ TEST(SSLTest, Set1VerifyCertStoreSameObject) {
       EXPECT_EQ(2, frees);
     }
   }
+}
+
+TEST(SSLTest, PskIdentityHintSelfAssignment) {
+  bssl::UniquePtr<SSL_CTX> ctx(SSL_CTX_new(TLS_method()));
+  ASSERT_TRUE(ctx);
+  bssl::UniquePtr<SSL> ssl(SSL_new(ctx.get()));
+  ASSERT_TRUE(ssl);
+  SSL_set_accept_state(ssl.get());
+
+  ASSERT_TRUE(SSL_use_psk_identity_hint(ssl.get(), "test identity"));
+  const char *hint = SSL_get_psk_identity_hint(ssl.get());
+  ASSERT_NE(nullptr, hint);
+  ASSERT_TRUE(SSL_use_psk_identity_hint(ssl.get(), hint));
+  EXPECT_STREQ("test identity", SSL_get_psk_identity_hint(ssl.get()));
+
+  // An input may also alias a suffix of the current hint.
+  hint = SSL_get_psk_identity_hint(ssl.get());
+  ASSERT_TRUE(SSL_use_psk_identity_hint(ssl.get(), hint + 5));
+  EXPECT_STREQ("identity", SSL_get_psk_identity_hint(ssl.get()));
+
+  const std::string too_long(PSK_MAX_IDENTITY_LEN + 1, 'a');
+  EXPECT_FALSE(SSL_use_psk_identity_hint(ssl.get(), too_long.c_str()));
+  EXPECT_STREQ("identity", SSL_get_psk_identity_hint(ssl.get()));
+  ERR_clear_error();
+
+  ASSERT_TRUE(SSL_use_psk_identity_hint(ssl.get(), ""));
+  EXPECT_EQ(nullptr, SSL_get_psk_identity_hint(ssl.get()));
+  ASSERT_TRUE(SSL_use_psk_identity_hint(ssl.get(), "another identity"));
+  ASSERT_TRUE(SSL_use_psk_identity_hint(ssl.get(), nullptr));
+  EXPECT_EQ(nullptr, SSL_get_psk_identity_hint(ssl.get()));
+}
+
+TEST(SSLTest, SSLNewInheritsVerifyParameters) {
+  bssl::UniquePtr<SSL_CTX> ctx(SSL_CTX_new(TLS_method()));
+  ASSERT_TRUE(ctx);
+  X509_VERIFY_PARAM *param = SSL_CTX_get0_param(ctx.get());
+  ASSERT_NE(nullptr, param);
+  static const char kHost[] = "server.example";
+  static const uint8_t kIP[] = {127, 0, 0, 1};
+  ASSERT_TRUE(X509_VERIFY_PARAM_set1_host(param, kHost, sizeof(kHost) - 1));
+  ASSERT_TRUE(X509_VERIFY_PARAM_set1_ip(param, kIP, sizeof(kIP)));
+  X509_VERIFY_PARAM_set_depth(param, 7);
+  X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_WILDCARDS);
+
+  bssl::UniquePtr<SSL> ssl(SSL_new(ctx.get()));
+  ASSERT_TRUE(ssl);
+  X509_VERIFY_PARAM *inherited = SSL_get0_param(ssl.get());
+  ASSERT_NE(nullptr, inherited);
+  ASSERT_NE(param, inherited);
+  EXPECT_EQ(7, X509_VERIFY_PARAM_get_depth(inherited));
+  EXPECT_EQ(X509_CHECK_FLAG_NO_WILDCARDS,
+            X509_VERIFY_PARAM_get_hostflags(inherited));
+  ASSERT_EQ(1u, sk_OPENSSL_STRING_num(inherited->hosts));
+  EXPECT_STREQ(kHost, sk_OPENSSL_STRING_value(inherited->hosts, 0));
+  EXPECT_EQ(Bytes(kIP), Bytes(inherited->ip, inherited->iplen));
+
+  // The SSL owns independent copies of the context's identity constraints.
+  static const char kOtherHost[] = "other.example";
+  static const uint8_t kOtherIP[] = {192, 0, 2, 1};
+  ASSERT_TRUE(X509_VERIFY_PARAM_set1_host(param, kOtherHost,
+                                         sizeof(kOtherHost) - 1));
+  ASSERT_TRUE(X509_VERIFY_PARAM_set1_ip(param, kOtherIP, sizeof(kOtherIP)));
+  X509_VERIFY_PARAM_set_depth(param, 11);
+  EXPECT_EQ(7, X509_VERIFY_PARAM_get_depth(inherited));
+  ASSERT_EQ(1u, sk_OPENSSL_STRING_num(inherited->hosts));
+  EXPECT_STREQ(kHost, sk_OPENSSL_STRING_value(inherited->hosts, 0));
+  EXPECT_EQ(Bytes(kIP), Bytes(inherited->ip, inherited->iplen));
+}
+
+TEST(SSLTest, SSLNewX509FailureCleansUp) {
+  struct CallbackState {
+    int new_calls = 0;
+    int free_calls = 0;
+    bool freed_param = false;
+  } state;
+  // This local table outlives ctx. No shared/global method or allocator changes.
+  SSL_X509_METHOD method = ssl_crypto_x509_method;
+  bssl::UniquePtr<SSL_CTX> ctx(SSL_CTX_new(TLS_method()));
+  ASSERT_TRUE(ctx);
+  ASSERT_TRUE(SSL_CTX_set_app_data(ctx.get(), &state));
+  method.ssl_new = [](SSL_HANDSHAKE *hs) {
+    auto *state = static_cast<CallbackState *>(
+        SSL_CTX_get_app_data(hs->ssl->ctx.get()));
+    ++state->new_calls;
+    if (!ssl_crypto_x509_method.ssl_new(hs)) {
+      return false;
+    }
+    // Model a failure after allocating the verification parameters. This
+    // checks SSL_new's failure routing, not native allocation fault injection.
+    OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
+    return false;
+  };
+  method.ssl_config_free = [](SSL_CONFIG *config) {
+    auto *state = static_cast<CallbackState *>(
+        SSL_CTX_get_app_data(config->ssl->ctx.get()));
+    ++state->free_calls;
+    state->freed_param = config->param != nullptr;
+    ssl_crypto_x509_method.ssl_config_free(config);
+  };
+  ctx->x509_method = &method;
+
+  bssl::UniquePtr<SSL> ssl(SSL_new(ctx.get()));
+  EXPECT_FALSE(ssl);
+  EXPECT_EQ(1, state.new_calls);
+  EXPECT_EQ(1, state.free_calls);
+  EXPECT_TRUE(state.freed_param);
+  EXPECT_TRUE(ExpectSingleError(ERR_LIB_SSL, ERR_R_MALLOC_FAILURE));
+  ctx.reset();
+  EXPECT_EQ(1, state.free_calls);
 }
 
 TEST(SSLTest, TLS13ExporterAvailability) {

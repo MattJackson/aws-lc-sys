@@ -1133,6 +1133,7 @@ TEST(ECTest, ArbitraryCurve) {
   ASSERT_TRUE(group);
   bssl::UniquePtr<EC_POINT> generator(EC_POINT_new(group.get()));
   ASSERT_TRUE(generator);
+  ASSERT_TRUE(generator->group);
   ASSERT_TRUE(EC_POINT_set_affine_coordinates_GFp(
       group.get(), generator.get(), gx.get(), gy.get(), ctx.get()));
   ASSERT_TRUE(EC_GROUP_set_generator(group.get(), generator.get(), order.get(),
@@ -1334,6 +1335,27 @@ TEST(ECTest, BIGNUMConvert) {
   ASSERT_TRUE(infinity);
 }
 
+TEST(ECTest, BIGNUMConvertDecodeFailure) {
+  const EC_GROUP *group = EC_group_p224();
+  bssl::UniquePtr<BIGNUM> encoded(BN_bin2bn(
+      kP224PublicKey_compressed_too_short,
+      sizeof(kP224PublicKey_compressed_too_short), nullptr));
+  ASSERT_TRUE(encoded);
+  bssl::UniquePtr<EC_POINT> point(
+      EC_POINT_dup(EC_GROUP_get0_generator(group), group));
+  ASSERT_TRUE(point);
+
+  OPENSSL_BEGIN_ALLOW_DEPRECATED
+  EXPECT_EQ(nullptr,
+            EC_POINT_bn2point(group, encoded.get(), point.get(), nullptr));
+  EXPECT_EQ(nullptr, EC_POINT_bn2point(group, encoded.get(), nullptr, nullptr));
+  OPENSSL_END_ALLOW_DEPRECATED
+  // A failed decode must not free caller-owned output.
+  EXPECT_TRUE(EC_POINT_set_to_infinity(group, point.get()));
+  EXPECT_TRUE(EC_POINT_is_at_infinity(group, point.get()));
+  ERR_clear_error();
+}
+
 TEST(ECTest, SetKeyWithoutGroup) {
   bssl::UniquePtr<EC_KEY> key(EC_KEY_new());
   ASSERT_TRUE(key);
@@ -1358,6 +1380,20 @@ TEST(ECTest, SetNULLKey) {
   // order to match OpenSSL behaviour exactly.
   EXPECT_FALSE(EC_KEY_set_public_key(key.get(), nullptr));
   EXPECT_FALSE(EC_KEY_get0_public_key(key.get()));
+}
+
+TEST(ECTest, SetPublicKeySelf) {
+  bssl::UniquePtr<EC_KEY> key(EC_KEY_new_by_curve_name(NID_X9_62_prime256v1));
+  ASSERT_TRUE(key);
+  const EC_GROUP *group = EC_KEY_get0_group(key.get());
+  ASSERT_TRUE(EC_KEY_set_public_key(key.get(), EC_GROUP_get0_generator(group)));
+
+  const EC_POINT *pub = EC_KEY_get0_public_key(key.get());
+  ASSERT_TRUE(pub);
+  EXPECT_TRUE(EC_KEY_set_public_key(key.get(), pub));
+  EXPECT_EQ(pub, EC_KEY_get0_public_key(key.get()));
+  EXPECT_TRUE(EC_KEY_check_key(key.get()));
+  EXPECT_EQ(0, EC_POINT_cmp(group, pub, EC_GROUP_get0_generator(group), nullptr));
 }
 
 TEST(ECTest, PointAtInfinity) {
@@ -1581,6 +1617,14 @@ class ECCurveTest : public testing::TestWithParam<CurveParam> {
   bssl::UniquePtr<EC_GROUP> group_{};
 };
 
+TEST_P(ECCurveTest, NewPoint) {
+  bssl::UniquePtr<EC_POINT> point(EC_POINT_new(group()));
+  ASSERT_TRUE(point);
+  ASSERT_TRUE(point->group);
+  EXPECT_TRUE(EC_POINT_set_to_infinity(group(), point.get()));
+  EXPECT_TRUE(EC_POINT_is_at_infinity(group(), point.get()));
+}
+
 TEST_P(ECCurveTest, SetAffine) {
   // Generate an EC_KEY.
   bssl::UniquePtr<EC_KEY> key(EC_KEY_new_by_curve_name(GetParam().nid));
@@ -1708,6 +1752,14 @@ TEST_P(ECCurveTest, GenerateFIPS) {
   bssl::UniquePtr<EC_KEY> key(EC_KEY_new_by_curve_name(GetParam().nid));
   ASSERT_TRUE(key);
   ASSERT_TRUE(EC_KEY_generate_key_fips(key.get()));
+}
+
+TEST_P(ECCurveTest, CheckFIPSAffinePublicKey) {
+  bssl::UniquePtr<EC_KEY> key(EC_KEY_new_by_curve_name(GetParam().nid));
+  ASSERT_TRUE(key);
+  ASSERT_TRUE(EC_KEY_set_public_key(key.get(), EC_GROUP_get0_generator(group())));
+  EXPECT_TRUE(EC_KEY_check_fips(key.get()));
+  EXPECT_TRUE(EC_KEY_check_fips(key.get()));
 }
 
 TEST_P(ECCurveTest, AddingEqualPoints) {

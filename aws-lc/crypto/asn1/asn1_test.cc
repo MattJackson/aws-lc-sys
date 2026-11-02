@@ -871,6 +871,29 @@ TEST(ASN1Test, SetBit) {
   TestSerialize(val.get(), i2d_ASN1_BIT_STRING, kBitStringEmpty);
 }
 
+TEST(ASN1Test, StringCopy) {
+  const uint8_t kData[] = {0xa0, 0x00, 0x60};
+  bssl::UniquePtr<ASN1_STRING> src(ASN1_BIT_STRING_new());
+  bssl::UniquePtr<ASN1_STRING> dst(ASN1_STRING_new());
+  ASSERT_TRUE(src);
+  ASSERT_TRUE(dst);
+  ASSERT_TRUE(ASN1_STRING_set(src.get(), kData, sizeof(kData)));
+  src->flags = ASN1_STRING_FLAG_BITS_LEFT | 3;
+
+  ASSERT_TRUE(ASN1_STRING_copy(dst.get(), src.get()));
+  EXPECT_EQ(V_ASN1_BIT_STRING, ASN1_STRING_type(dst.get()));
+  EXPECT_EQ(src->flags, dst->flags);
+  EXPECT_EQ(Bytes(kData), Bytes(ASN1_STRING_get0_data(dst.get()),
+                              ASN1_STRING_length(dst.get())));
+
+  // Copying an object onto itself must preserve its contents and metadata.
+  ASSERT_TRUE(ASN1_STRING_copy(src.get(), src.get()));
+  EXPECT_EQ(V_ASN1_BIT_STRING, ASN1_STRING_type(src.get()));
+  EXPECT_EQ(ASN1_STRING_FLAG_BITS_LEFT | 3, src->flags);
+  EXPECT_EQ(Bytes(kData), Bytes(ASN1_STRING_get0_data(src.get()),
+                              ASN1_STRING_length(src.get())));
+}
+
 TEST(ASN1Test, StringToUTF8) {
   static const struct {
     std::vector<uint8_t> in;
@@ -1199,6 +1222,20 @@ TEST(ASN1Test, TimeSetString) {
   EXPECT_FALSE(ASN1_GENERALIZEDTIME_set_string(nullptr, "19700101000000-0400"));
   EXPECT_FALSE(ASN1_TIME_set_string(nullptr, "19700101000000-0400"));
   EXPECT_FALSE(ASN1_TIME_set_string_X509(nullptr, "19700101000000-0400"));
+}
+
+TEST(ASN1Test, GeneralizedTimeConversionInPlace) {
+  static const char kTime[] = "20500101000000Z";
+  bssl::UniquePtr<ASN1_GENERALIZEDTIME> time(ASN1_GENERALIZEDTIME_new());
+  ASSERT_TRUE(time);
+  ASSERT_TRUE(ASN1_GENERALIZEDTIME_set_string(time.get(), kTime));
+
+  ASN1_GENERALIZEDTIME *out = time.get();
+  ASSERT_EQ(time.get(), ASN1_TIME_to_generalizedtime(time.get(), &out));
+  EXPECT_EQ(time.get(), out);
+  EXPECT_EQ(V_ASN1_GENERALIZEDTIME, ASN1_STRING_type(out));
+  EXPECT_EQ(kTime, ASN1StringToStdString(out));
+  EXPECT_TRUE(ASN1_GENERALIZEDTIME_check(out));
 }
 
 TEST(ASN1Test, AdjTime) {

@@ -176,6 +176,8 @@ TEST(DSATest, Generate) {
   unsigned sig_len;
   ASSERT_TRUE(DSA_sign(0, fips_digest, sizeof(fips_digest), sig.data(),
                        &sig_len, dsa.get()));
+  ASSERT_GT(sig_len, 0u);
+  ASSERT_LE(sig_len, sig.size());
 
   EXPECT_EQ(1, DSA_verify(0, fips_digest, sizeof(fips_digest), sig.data(),
                           sig_len, dsa.get()));
@@ -267,9 +269,10 @@ TEST(DSATest, MissingPrivate) {
   ASSERT_TRUE(dsa);
 
   std::vector<uint8_t> sig(DSA_size(dsa.get()));
-  unsigned sig_len;
+  unsigned sig_len = 123;
   EXPECT_FALSE(DSA_sign(0, fips_digest, sizeof(fips_digest), sig.data(),
                         &sig_len, dsa.get()));
+  EXPECT_EQ(0u, sig_len);
 }
 
 // A zero private key is invalid and can cause signing to loop forever.

@@ -787,8 +787,13 @@ int DSA_sign(int type, const uint8_t *digest, size_t digest_len,
     return 0;
   }
 
-  *out_siglen = i2d_DSA_SIG(s, &out_sig);
+  int sig_len = i2d_DSA_SIG(s, &out_sig);
   DSA_SIG_free(s);
+  if (sig_len < 0) {
+    *out_siglen = 0;
+    return 0;
+  }
+  *out_siglen = (unsigned int)sig_len;
   return 1;
 }
 

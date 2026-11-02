@@ -82,7 +82,7 @@ ASN1_GENERALIZEDTIME *ASN1_TIME_to_generalizedtime(const ASN1_TIME *t,
 
   // If already GeneralizedTime just copy across
   if (t->type == V_ASN1_GENERALIZEDTIME) {
-    if (!ASN1_STRING_set(ret, t->data, t->length)) {
+    if (!ASN1_STRING_copy(ret, t)) {
       goto err;
     }
     goto done;

@@ -4192,6 +4192,77 @@ TEST(EVPExtraTest, SetNoneClearsKey) {
   EXPECT_EQ(EVP_PKEY_bits(pkey.get()), 0);
 }
 
+template <typename Key>
+static void TestSet1SameKey(int type, const uint8_t *der, size_t der_len,
+                            Key *(*get0)(const EVP_PKEY *),
+                            int (*set1)(EVP_PKEY *, Key *)) {
+  // The parsed EVP_PKEY owns the only reference to the concrete key.
+  bssl::UniquePtr<EVP_PKEY> pkey = ParsePrivateKey(type, der, der_len);
+  ASSERT_TRUE(pkey);
+  Key *borrowed = get0(pkey.get());
+  ASSERT_TRUE(borrowed);
+
+  bssl::ScopedCBB before, after;
+  ASSERT_TRUE(CBB_init(before.get(), 0));
+  ASSERT_TRUE(EVP_marshal_private_key(before.get(), pkey.get()));
+  for (int i = 0; i < 2; i++) {
+    ASSERT_TRUE(set1(pkey.get(), borrowed));
+    EXPECT_EQ(borrowed, get0(pkey.get()));
+    EXPECT_EQ(type, EVP_PKEY_id(pkey.get()));
+  }
+  EXPECT_FALSE(set1(pkey.get(), nullptr));
+  EXPECT_EQ(borrowed, get0(pkey.get()));
+  ASSERT_TRUE(CBB_init(after.get(), 0));
+  ASSERT_TRUE(EVP_marshal_private_key(after.get(), pkey.get()));
+  EXPECT_EQ(Bytes(CBB_data(before.get()), CBB_len(before.get())),
+            Bytes(CBB_data(after.get()), CBB_len(after.get())));
+}
+
+TEST(EVPExtraTest, Set1RSASameKey) {
+  TestSet1SameKey(EVP_PKEY_RSA, kExampleRSAKeyDER, sizeof(kExampleRSAKeyDER),
+                  EVP_PKEY_get0_RSA, EVP_PKEY_set1_RSA);
+}
+
+TEST(EVPExtraTest, Set1DSASameKey) {
+  TestSet1SameKey(EVP_PKEY_DSA, kExampleDSAKeyDER, sizeof(kExampleDSAKeyDER),
+                  EVP_PKEY_get0_DSA, EVP_PKEY_set1_DSA);
+}
+
+TEST(EVPExtraTest, Set1ECSameKey) {
+  TestSet1SameKey(EVP_PKEY_EC, kExampleECKeyDER, sizeof(kExampleECKeyDER),
+                  EVP_PKEY_get0_EC_KEY, EVP_PKEY_set1_EC_KEY);
+}
+
+TEST(EVPExtraTest, Set1DHSameKey) {
+  bssl::UniquePtr<DH> dh(DH_get_rfc7919_2048());
+  ASSERT_TRUE(dh);
+  const std::string expected_p = BIGNUMToHex(DH_get0_p(dh.get()));
+  const std::string expected_g = BIGNUMToHex(DH_get0_g(dh.get()));
+  bssl::UniquePtr<EVP_PKEY> pkey(EVP_PKEY_new());
+  ASSERT_TRUE(pkey);
+  ASSERT_TRUE(EVP_PKEY_assign_DH(pkey.get(), dh.get()));
+  dh.release();  // The EVP_PKEY now owns the only concrete-key reference.
+
+  DH *borrowed = EVP_PKEY_get0_DH(pkey.get());
+  ASSERT_TRUE(borrowed);
+  for (int i = 0; i < 2; i++) {
+    ASSERT_TRUE(EVP_PKEY_set1_DH(pkey.get(), borrowed));
+    EXPECT_EQ(borrowed, EVP_PKEY_get0_DH(pkey.get()));
+    EXPECT_EQ(EVP_PKEY_DH, EVP_PKEY_id(pkey.get()));
+    EXPECT_EQ(expected_p, BIGNUMToHex(DH_get0_p(borrowed)));
+    EXPECT_EQ(expected_g, BIGNUMToHex(DH_get0_g(borrowed)));
+  }
+  EXPECT_FALSE(EVP_PKEY_set1_DH(pkey.get(), nullptr));
+  EXPECT_EQ(borrowed, EVP_PKEY_get0_DH(pkey.get()));
+
+  // A fresh owned reference must also survive releasing the EVP_PKEY.
+  bssl::UniquePtr<DH> retained(EVP_PKEY_get1_DH(pkey.get()));
+  ASSERT_TRUE(retained);
+  pkey.reset();
+  EXPECT_EQ(expected_p, BIGNUMToHex(DH_get0_p(retained.get())));
+  EXPECT_EQ(expected_g, BIGNUMToHex(DH_get0_g(retained.get())));
+}
+
 // EVP_PKEY_assign_FOO with NULL should fail without changing the key type.
 TEST(EVPExtraTest, NoHalfEmptyKeys) {
   bssl::UniquePtr<EVP_PKEY> pkey(EVP_PKEY_new());

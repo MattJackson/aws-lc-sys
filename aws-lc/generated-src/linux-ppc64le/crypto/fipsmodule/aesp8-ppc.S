@@ -397,16 +397,42 @@ aes_hw_encrypt:
 
 	vspltisb	2,-1
 	vxor	1,1,1
-	li	7,15
-	vperm	2,2,1,3
 	vxor	3,3,4
-	lvx	1,0,4
 	vperm	0,0,0,3
-	vsel	1,1,0,2
-	lvx	4,7,4
-	stvx	1,0,4
-	vsel	0,0,4,2
-	stvx	0,7,4
+
+
+
+	stvebx	0,0,4
+	li	7,1
+	stvebx	0,7,4
+	li	7,2
+	stvebx	0,7,4
+	li	7,3
+	stvebx	0,7,4
+	li	7,4
+	stvebx	0,7,4
+	li	7,5
+	stvebx	0,7,4
+	li	7,6
+	stvebx	0,7,4
+	li	7,7
+	stvebx	0,7,4
+	li	7,8
+	stvebx	0,7,4
+	li	7,9
+	stvebx	0,7,4
+	li	7,10
+	stvebx	0,7,4
+	li	7,11
+	stvebx	0,7,4
+	li	7,12
+	stvebx	0,7,4
+	li	7,13
+	stvebx	0,7,4
+	li	7,14
+	stvebx	0,7,4
+	li	7,15
+	stvebx	0,7,4
 
 	or	12,12,12
 	blr	
@@ -467,16 +493,42 @@ aes_hw_decrypt:
 
 	vspltisb	2,-1
 	vxor	1,1,1
-	li	7,15
-	vperm	2,2,1,3
 	vxor	3,3,4
-	lvx	1,0,4
 	vperm	0,0,0,3
-	vsel	1,1,0,2
-	lvx	4,7,4
-	stvx	1,0,4
-	vsel	0,0,4,2
-	stvx	0,7,4
+
+
+
+	stvebx	0,0,4
+	li	7,1
+	stvebx	0,7,4
+	li	7,2
+	stvebx	0,7,4
+	li	7,3
+	stvebx	0,7,4
+	li	7,4
+	stvebx	0,7,4
+	li	7,5
+	stvebx	0,7,4
+	li	7,6
+	stvebx	0,7,4
+	li	7,7
+	stvebx	0,7,4
+	li	7,8
+	stvebx	0,7,4
+	li	7,9
+	stvebx	0,7,4
+	li	7,10
+	stvebx	0,7,4
+	li	7,11
+	stvebx	0,7,4
+	li	7,12
+	stvebx	0,7,4
+	li	7,13
+	stvebx	0,7,4
+	li	7,14
+	stvebx	0,7,4
+	li	7,15
+	stvebx	0,7,4
 
 	or	12,12,12
 	blr	

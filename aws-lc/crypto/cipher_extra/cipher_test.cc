@@ -1725,6 +1725,55 @@ TEST(CipherTest, EncryptUpdateWritesOnlyReportedBytes) {
   }
 }
 
+TEST(CipherTest, SelfCopyPreservesState) {
+  // The first two AES-128-CBC blocks from NIST SP800-38A, F.2.1.
+  const uint8_t key[16] = {0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+                           0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c};
+  const uint8_t iv[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                          0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+  const uint8_t plaintext[32] = {
+      0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e,
+      0x11, 0x73, 0x93, 0x17, 0x2a, 0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03,
+      0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51};
+  const uint8_t ciphertext[32] = {
+      0x76, 0x49, 0xab, 0xac, 0x81, 0x19, 0xb2, 0x46, 0xce, 0xe9, 0x8e,
+      0x9b, 0x12, 0xe9, 0x19, 0x7d, 0x50, 0x86, 0xcb, 0x9b, 0x50, 0x72,
+      0x19, 0xee, 0x95, 0xdb, 0x11, 0x3a, 0x91, 0x76, 0x78, 0xb2};
+
+  for (int split : {0, 7, 16, 23}) {
+    SCOPED_TRACE(split);
+    bssl::UniquePtr<EVP_CIPHER_CTX> ctx(EVP_CIPHER_CTX_new());
+    bssl::UniquePtr<EVP_CIPHER_CTX> copy(EVP_CIPHER_CTX_new());
+    ASSERT_TRUE(ctx);
+    ASSERT_TRUE(copy);
+    ASSERT_TRUE(EVP_EncryptInit_ex(ctx.get(), EVP_aes_128_cbc(), nullptr, key,
+                                   iv));
+    ASSERT_TRUE(EVP_CIPHER_CTX_set_padding(ctx.get(), 0));
+    uint8_t prefix[sizeof(plaintext) + 16];
+    int prefix_len = 0;
+    if (split != 0) {
+      ASSERT_TRUE(EVP_EncryptUpdate(ctx.get(), prefix, &prefix_len, plaintext,
+                                     split));
+    }
+
+    // Check both an unused context and one holding a partial block or updated
+    // CBC IV. A distinct copy must still behave identically afterwards.
+    ASSERT_TRUE(EVP_CIPHER_CTX_copy(ctx.get(), ctx.get()));
+    ASSERT_TRUE(EVP_CIPHER_CTX_copy(copy.get(), ctx.get()));
+    for (EVP_CIPHER_CTX *current : {ctx.get(), copy.get()}) {
+      uint8_t output[sizeof(plaintext) + 16];
+      memcpy(output, prefix, prefix_len);
+      int len = 0;
+      ASSERT_TRUE(EVP_EncryptUpdate(current, output + prefix_len, &len,
+                                     plaintext + split,
+                                     sizeof(plaintext) - split));
+      const int update_len = prefix_len + len;
+      ASSERT_TRUE(EVP_EncryptFinal_ex(current, output + update_len, &len));
+      EXPECT_EQ(Bytes(output, update_len + len), Bytes(ciphertext));
+    }
+  }
+}
+
 // Mock cipher whose |EVP_CTRL_INIT| handler always fails. It's needed to
 // exercise the error paths in |EVP_CipherInit_ex| and |EVP_CIPHER_CTX_copy|.
 // In addition, the mock needs |ctx_size| != 0, otherwise |cipher_data| is

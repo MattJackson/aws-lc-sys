@@ -327,8 +327,7 @@ static bool ssl_crypto_x509_ssl_new(SSL_HANDSHAKE *hs) {
   if (hs->config->param == nullptr) {
     return false;
   }
-  X509_VERIFY_PARAM_inherit(hs->config->param, hs->ssl->ctx->param);
-  return true;
+  return X509_VERIFY_PARAM_inherit(hs->config->param, hs->ssl->ctx->param);
 }
 
 static void ssl_crypto_x509_ssl_flush_cached_client_CA(SSL_CONFIG *cfg) {

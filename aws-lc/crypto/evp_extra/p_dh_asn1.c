@@ -171,11 +171,15 @@ const EVP_PKEY_ASN1_METHOD dh_asn1_meth = {
 
 int EVP_PKEY_set1_DH(EVP_PKEY *pkey, DH *key) {
   SET_DIT_AUTO_RESET
-  if (EVP_PKEY_assign_DH(pkey, key)) {
+  // |key| may be a borrowed reference to the key already owned by |pkey|.
+  if (key != NULL) {
     DH_up_ref(key);
-    return 1;
   }
-  return 0;
+  if (!EVP_PKEY_assign_DH(pkey, key)) {
+    DH_free(key);
+    return 0;
+  }
+  return 1;
 }
 
 int EVP_PKEY_assign_DH(EVP_PKEY *pkey, DH *key) {

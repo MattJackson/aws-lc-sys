@@ -47,6 +47,83 @@ TEST(PEMTest, NoRC4) {
       ErrorEquals(ERR_get_error(), ERR_LIB_PEM, PEM_R_UNSUPPORTED_ENCRYPTION));
 }
 
+TEST(PEMTest, CipherInfoRequiresComma) {
+  auto check_bad_iv = [](auto &header) {
+    const std::string original(header);
+    EVP_CIPHER_INFO cipher;
+    ERR_clear_error();
+    EXPECT_FALSE(PEM_get_EVP_CIPHER_INFO(header, &cipher));
+    EXPECT_TRUE(ErrorEquals(ERR_get_error(), ERR_LIB_PEM, PEM_R_BAD_IV_CHARS));
+    EXPECT_EQ(original, std::string(header));
+  };
+
+  // These arrays end at their NUL terminator, without the spare storage used
+  // by PEM_read_bio. Direct header parsing must reject them within bounds.
+  char no_comma[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC";
+  check_bad_iv(no_comma);
+  char newline[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC\n";
+  check_bad_iv(newline);
+  char space[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC "
+                 "00112233445566778899AABBCCDDEEFF";
+  check_bad_iv(space);
+  char colon[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC:"
+                 "00112233445566778899AABBCCDDEEFF";
+  check_bad_iv(colon);
+
+  // Preserve unsupported-cipher errors even when the separator is absent.
+  char unknown[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: UNKNOWN";
+  EVP_CIPHER_INFO cipher;
+  ERR_clear_error();
+  EXPECT_FALSE(PEM_get_EVP_CIPHER_INFO(unknown, &cipher));
+  EXPECT_TRUE(
+      ErrorEquals(ERR_get_error(), ERR_LIB_PEM, PEM_R_UNSUPPORTED_ENCRYPTION));
+}
+
+TEST(PEMTest, CipherInfoRejectsShortIV) {
+  auto check_bad_iv = [](auto &header) {
+    EVP_CIPHER_INFO cipher;
+    ERR_clear_error();
+    EXPECT_FALSE(PEM_get_EVP_CIPHER_INFO(header, &cipher));
+    EXPECT_TRUE(ErrorEquals(ERR_get_error(), ERR_LIB_PEM, PEM_R_BAD_IV_CHARS));
+  };
+  char empty_iv[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,";
+  check_bad_iv(empty_iv);
+  char short_iv[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,"
+                    "00112233445566778899AABBCCDDEEF";
+  check_bad_iv(short_iv);
+  char non_hex_iv[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,!";
+  check_bad_iv(non_hex_iv);
+}
+
+TEST(PEMTest, CipherInfoLegacyCiphers) {
+  const uint8_t kIV[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+  auto check_cipher = [&](auto &header, const EVP_CIPHER *expected) {
+    const std::string original(header);
+    EVP_CIPHER_INFO cipher;
+    ERR_clear_error();
+    ASSERT_TRUE(PEM_get_EVP_CIPHER_INFO(header, &cipher));
+    EXPECT_EQ(expected, cipher.cipher);
+    EXPECT_EQ(Bytes(kIV, EVP_CIPHER_iv_length(expected)),
+              Bytes(cipher.iv, EVP_CIPHER_iv_length(cipher.cipher)));
+    EXPECT_EQ(original, std::string(header));
+    EXPECT_EQ(0u, ERR_get_error());
+  };
+  char des[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: DES-CBC,0011223344556677";
+  check_cipher(des, EVP_des_cbc());
+  char des3[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: DES-EDE3-CBC,0011223344556677";
+  check_cipher(des3, EVP_des_ede3_cbc());
+  char aes128[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,"
+                  "00112233445566778899aAbBcCdDeEfF";
+  check_cipher(aes128, EVP_aes_128_cbc());
+  char aes192[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-192-CBC,"
+                  "00112233445566778899AABBCCDDEEFF\n";
+  check_cipher(aes192, EVP_aes_192_cbc());
+  char aes256[] = "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,"
+                  "00112233445566778899AABBCCDDEEFF";
+  check_cipher(aes256, EVP_aes_256_cbc());
+}
+
 static void* d2i_ASN1_INTEGER_void(void ** out, const unsigned char **inp, long len) {
   return d2i_ASN1_INTEGER((ASN1_INTEGER **)out, inp, len);
 }

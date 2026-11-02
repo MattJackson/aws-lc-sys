@@ -391,8 +391,7 @@ static int scalar_from_cbs(CBS *cbs, const EC_GROUP *group, EC_SCALAR *out) {
     return 0;
   }
 
-  ec_scalar_from_bytes(group, out, CBS_data(&tmp), CBS_len(&tmp));
-  return 1;
+  return ec_scalar_from_bytes(group, out, CBS_data(&tmp), CBS_len(&tmp));
 }
 
 static int hash_c_dleq(const PMBTOKEN_METHOD *method, EC_SCALAR *out,

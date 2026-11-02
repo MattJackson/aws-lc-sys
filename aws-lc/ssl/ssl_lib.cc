@@ -2943,20 +2943,21 @@ static int use_psk_identity_hint(UniquePtr<char> *out,
     return 0;
   }
 
-  // Clear currently configured hint, if any.
-  out->reset();
-
   // Treat the empty hint as not supplying one. Plain PSK makes it possible to
   // send either no hint (omit ServerKeyExchange) or an empty hint, while
   // ECDHE_PSK can only spell empty hint. Having different capabilities is odd,
   // so we interpret empty and missing as identical.
+  // |identity_hint| may point into the currently configured hint, so copy it
+  // before replacing the existing allocation.
+  UniquePtr<char> hint;
   if (identity_hint != NULL && identity_hint[0] != '\0') {
-    out->reset(OPENSSL_strdup(identity_hint));
-    if (*out == nullptr) {
+    hint.reset(OPENSSL_strdup(identity_hint));
+    if (!hint) {
       return 0;
     }
   }
 
+  *out = std::move(hint);
   return 1;
 }
 

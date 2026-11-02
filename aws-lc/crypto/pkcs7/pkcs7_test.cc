@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include <openssl/bytestring.h>
 #include <openssl/crypto.h>
 #include <openssl/mem.h>
@@ -1563,6 +1565,54 @@ TEST(PKCS7Test, GettersSetters) {
   PKCS7_RECIP_INFO_get0_alg(p7ri, &penc);
   ASSERT_TRUE(penc);
   EXPECT_TRUE(PKCS7_add_recipient_info(p7.get(), p7ri));
+}
+
+TEST(PKCS7Test, SettersRetainBorrowedReferences) {
+  bssl::UniquePtr<RSA> rsa(RSA_new());
+  ASSERT_TRUE(rsa);
+  ASSERT_TRUE(RSA_generate_key_fips(rsa.get(), 2048, nullptr));
+  bssl::UniquePtr<EVP_PKEY> key(EVP_PKEY_new());
+  ASSERT_TRUE(key);
+  ASSERT_TRUE(EVP_PKEY_set1_RSA(key.get(), rsa.get()));
+  rsa.reset();
+
+  bssl::UniquePtr<X509> cert =
+      MakeTestCert("Issuer", "Signer", key.get(), /*is_ca=*/false);
+  ASSERT_TRUE(cert);
+  ASSERT_TRUE(X509_sign(cert.get(), key.get(), EVP_sha256()));
+  // Decode a fresh certificate so its public key does not retain |key|.
+  cert.reset(X509_dup(cert.get()));
+  ASSERT_TRUE(cert);
+  ASSERT_NE(key.get(), X509_get0_pubkey(cert.get()));
+
+  bssl::UniquePtr<PKCS7_SIGNER_INFO> signer(PKCS7_SIGNER_INFO_new());
+  ASSERT_TRUE(signer);
+  ASSERT_TRUE(PKCS7_SIGNER_INFO_set(signer.get(), cert.get(), key.get(),
+                                   EVP_sha256()));
+  key.reset();  // The signer now owns the only reference to the private key.
+
+  EVP_PKEY *borrowed_key = nullptr;
+  PKCS7_SIGNER_INFO_get0_algs(signer.get(), &borrowed_key, nullptr, nullptr);
+  ASSERT_TRUE(borrowed_key);
+  ASSERT_TRUE(PKCS7_SIGNER_INFO_set(signer.get(), cert.get(), borrowed_key,
+                                   EVP_sha384()));
+  EVP_PKEY *retained_key = nullptr;
+  PKCS7_SIGNER_INFO_get0_algs(signer.get(), &retained_key, nullptr, nullptr);
+  EXPECT_EQ(borrowed_key, retained_key);
+  EXPECT_EQ(2048, EVP_PKEY_bits(retained_key));
+  EXPECT_EQ(EVP_PKEY_RSA, EVP_PKEY_id(retained_key));
+
+  std::unique_ptr<PKCS7_RECIP_INFO, decltype(&PKCS7_RECIP_INFO_free)> recipient(
+      PKCS7_RECIP_INFO_new(), PKCS7_RECIP_INFO_free);
+  ASSERT_TRUE(recipient);
+  ASSERT_TRUE(PKCS7_RECIP_INFO_set(recipient.get(), cert.get()));
+  cert.reset();  // The recipient now owns the only certificate reference.
+
+  X509 *borrowed_cert = recipient->cert;
+  ASSERT_TRUE(PKCS7_RECIP_INFO_set(recipient.get(), borrowed_cert));
+  EXPECT_EQ(borrowed_cert, recipient->cert);
+  ASSERT_TRUE(X509_get0_pubkey(recipient->cert));
+  EXPECT_EQ(2048, EVP_PKEY_bits(X509_get0_pubkey(recipient->cert)));
 }
 
 TEST(PKCS7Test, SetTypeChangeType) {

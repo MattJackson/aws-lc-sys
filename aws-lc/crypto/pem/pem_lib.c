@@ -427,12 +427,18 @@ int PEM_get_EVP_CIPHER_INFO(char *header, EVP_CIPHER_INFO *cipher) {
   *header = '\0';
   cipher->cipher = enc = cipher_by_name(p);
   *header = c;
-  header++;
 
   if (enc == NULL) {
     OPENSSL_PUT_ERROR(PEM, PEM_R_UNSUPPORTED_ENCRYPTION);
     return 0;
   }
+  // The cipher name must be followed by a comma. In particular, do not
+  // advance past a terminating NUL before parsing the IV.
+  if (c != ',') {
+    OPENSSL_PUT_ERROR(PEM, PEM_R_BAD_IV_CHARS);
+    return 0;
+  }
+  header++;
   // The IV parameter must be at least 8 bytes long to be used as the salt in
   // the KDF. (This should not happen given |cipher_by_name|.)
   if (EVP_CIPHER_iv_length(enc) < 8) {

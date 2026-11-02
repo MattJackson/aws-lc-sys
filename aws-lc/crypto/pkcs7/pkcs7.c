@@ -526,10 +526,10 @@ int PKCS7_SIGNER_INFO_set(PKCS7_SIGNER_INFO *p7i, X509 *x509, EVP_PKEY *pkey,
     return 0;
   }
 
-  // NOTE: OpenSSL does not free |p7i->pkey| before setting it. we do so here
-  // to avoid potential memory leaks.
-  EVP_PKEY_free(p7i->pkey);
+  // Retain the replacement before releasing the old reference. |pkey| may be
+  // the key already owned by |p7i|, borrowed via the get0 accessor.
   EVP_PKEY_up_ref(pkey);
+  EVP_PKEY_free(p7i->pkey);
   p7i->pkey = pkey;
 
   if (!X509_ALGOR_set0(p7i->digest_alg, OBJ_nid2obj(EVP_MD_type(dgst)),
@@ -606,10 +606,10 @@ int PKCS7_RECIP_INFO_set(PKCS7_RECIP_INFO *p7i, X509 *x509) {
     }
   }
 
-  // NOTE: OpenSSL does not free |p7i->cert| before setting it. we do so here
-  // to avoid potential memory leaks.
-  X509_free(p7i->cert);
+  // Retain the replacement before releasing the old reference, including when
+  // the caller reuses the certificate already owned by |p7i|.
   X509_up_ref(x509);
+  X509_free(p7i->cert);
   p7i->cert = x509;
 
   return 1;

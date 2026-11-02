@@ -63,6 +63,11 @@ int EVP_CIPHER_CTX_copy(EVP_CIPHER_CTX *out, const EVP_CIPHER_CTX *in) {
   }
   GUARD_PTR(out);
 
+  // Preserve a valid context when copying it onto itself.
+  if (out == in) {
+    return 1;
+  }
+
   EVP_CIPHER_CTX_cleanup(out);
   OPENSSL_memcpy(out, in, sizeof(EVP_CIPHER_CTX));
 

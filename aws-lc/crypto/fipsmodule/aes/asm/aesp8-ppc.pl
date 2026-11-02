@@ -474,18 +474,19 @@ Loop_${dir}c:
 	?vperm		v1,v1,v2,v5
 	v${n}cipherlast	v0,v0,v1
 
-	vspltisb	v2,-1
+	vspltisb	v2,-1			# clear temporary round keys
 	vxor		v1,v1,v1
-	li		$idx,15			# 15 is not typo
-	?vperm		v2,v1,v2,v3		# outmask
 	le?vxor		v3,v3,v4
-	lvx		v1,0,$out		# outhead
 	vperm		v0,v0,v0,v3		# rotate [and byte swap in LE]
-	vsel		v1,v1,v0,v2
-	lvx		v4,$idx,$out
-	stvx		v1,0,$out
-	vsel		v0,v0,v4,v2
-	stvx		v0,$idx,$out
+	# Element stores use the same byte lanes as stvx, but touch only the
+	# output block. Merging aligned vectors can overwrite adjacent data
+	# when disjoint, unaligned output blocks are written concurrently.
+	stvebx		v0,0,$out
+___
+for my $i (1..15) {
+    $code.="\tli\t\t$idx,$i\n\tstvebx\t\tv0,$idx,$out\n";
+}
+$code.=<<___;
 
 	mtspr		256,$vrsave
 	blr

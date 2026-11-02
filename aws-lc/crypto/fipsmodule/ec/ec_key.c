@@ -216,6 +216,11 @@ int EC_KEY_set_public_key(EC_KEY *key, const EC_POINT *pub_key) {
     return 0;
   }
 
+  // The caller may pass the borrowed point returned by EC_KEY_get0_public_key.
+  if (pub_key != NULL && pub_key == key->pub_key) {
+    return 1;
+  }
+
   EC_POINT_free(key->pub_key);
   key->pub_key = EC_POINT_dup(pub_key, key->group);
   return (key->pub_key == NULL) ? 0 : 1;
@@ -345,7 +350,10 @@ int EC_KEY_check_fips(const EC_KEY *key) {
     BIGNUM *x = BN_new();
     BIGNUM *y = BN_new();
     int check_ret = 1;
-    if (group->meth->felem_to_bytes == NULL) {
+    if (x == NULL || y == NULL) {
+      // BN_new already reported the allocation failure.
+      check_ret = 0;
+    } else if (group->meth->felem_to_bytes == NULL) {
       OPENSSL_PUT_ERROR(EC, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
       check_ret = 0;
     } else if (!ec_felem_to_bignum(group, x, &pub_key->raw.X) ||

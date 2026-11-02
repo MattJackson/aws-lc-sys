@@ -399,11 +399,15 @@ err:
 
 int EVP_PKEY_set1_RSA(EVP_PKEY *pkey, RSA *key) {
   SET_DIT_AUTO_RESET;
-  if (EVP_PKEY_assign_RSA(pkey, key)) {
+  // |key| may be a borrowed reference to the key already owned by |pkey|.
+  if (key != NULL) {
     RSA_up_ref(key);
-    return 1;
   }
-  return 0;
+  if (!EVP_PKEY_assign_RSA(pkey, key)) {
+    RSA_free(key);
+    return 0;
+  }
+  return 1;
 }
 
 int EVP_PKEY_assign_RSA(EVP_PKEY *pkey, RSA *key) {
@@ -437,11 +441,15 @@ RSA *EVP_PKEY_get1_RSA(const EVP_PKEY *pkey) {
 
 int EVP_PKEY_set1_DSA(EVP_PKEY *pkey, DSA *key) {
   SET_DIT_AUTO_RESET;
-  if (EVP_PKEY_assign_DSA(pkey, key)) {
+  // |key| may be a borrowed reference to the key already owned by |pkey|.
+  if (key != NULL) {
     DSA_up_ref(key);
-    return 1;
   }
-  return 0;
+  if (!EVP_PKEY_assign_DSA(pkey, key)) {
+    DSA_free(key);
+    return 0;
+  }
+  return 1;
 }
 
 int EVP_PKEY_assign_DSA(EVP_PKEY *pkey, DSA *key) {
@@ -475,11 +483,15 @@ DSA *EVP_PKEY_get1_DSA(const EVP_PKEY *pkey) {
 
 int EVP_PKEY_set1_EC_KEY(EVP_PKEY *pkey, EC_KEY *key) {
   SET_DIT_AUTO_RESET;
-  if (EVP_PKEY_assign_EC_KEY(pkey, key)) {
+  // |key| may be a borrowed reference to the key already owned by |pkey|.
+  if (key != NULL) {
     EC_KEY_up_ref(key);
-    return 1;
   }
-  return 0;
+  if (!EVP_PKEY_assign_EC_KEY(pkey, key)) {
+    EC_KEY_free(key);
+    return 0;
+  }
+  return 1;
 }
 
 int EVP_PKEY_assign_EC_KEY(EVP_PKEY *pkey, EC_KEY *key) {
