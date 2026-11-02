@@ -1439,12 +1439,13 @@ void SSL_CTX_set_client_cert_cb(SSL_CTX *ctx,
 
 static int set_cert_store(X509_STORE **store_ptr, X509_STORE *new_store,
                           int take_ref) {
-  X509_STORE_free(*store_ptr);
-  *store_ptr = new_store;
-
+  // |new_store| may be the same object as |*store_ptr|, with the receiver
+  // holding its only reference. Retain it before releasing the old reference.
   if (new_store != NULL && take_ref) {
     X509_STORE_up_ref(new_store);
   }
+  X509_STORE_free(*store_ptr);
+  *store_ptr = new_store;
 
   return 1;
 }

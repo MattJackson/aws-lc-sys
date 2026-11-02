@@ -136,6 +136,72 @@ TEST(SSLTest, AddClientCA) {
 }
 
 
+TEST(SSLTest, Set1VerifyCertStoreSameObject) {
+  const int ex_index = X509_STORE_get_ex_new_index(
+      0, nullptr, nullptr, nullptr,
+      [](void *, void *ptr, CRYPTO_EX_DATA *, int, long, void *) {
+        if (ptr != nullptr) {
+          ++*static_cast<int *>(ptr);
+        }
+      });
+  ASSERT_GE(ex_index, 0);
+
+  for (bool use_ssl : {false, true}) {
+    SCOPED_TRACE(use_ssl);
+    for (bool initial_set1 : {false, true}) {
+      SCOPED_TRACE(initial_set1);
+      int frees = 0;
+      bssl::UniquePtr<SSL_CTX> ctx(SSL_CTX_new(TLS_method()));
+      ASSERT_TRUE(ctx);
+      bssl::UniquePtr<SSL> ssl;
+      if (use_ssl) {
+        ssl.reset(SSL_new(ctx.get()));
+        ASSERT_TRUE(ssl);
+      }
+      auto set0 = [&](X509_STORE *store) {
+        return use_ssl ? SSL_set0_verify_cert_store(ssl.get(), store)
+                       : SSL_CTX_set0_verify_cert_store(ctx.get(), store);
+      };
+      auto set1 = [&](X509_STORE *store) {
+        return use_ssl ? SSL_set1_verify_cert_store(ssl.get(), store)
+                       : SSL_CTX_set1_verify_cert_store(ctx.get(), store);
+      };
+
+      bssl::UniquePtr<X509_STORE> store(X509_STORE_new());
+      ASSERT_TRUE(store);
+      ASSERT_TRUE(X509_STORE_set_ex_data(store.get(), ex_index, &frees));
+      X509_STORE *borrowed = store.get();
+      if (initial_set1) {
+        ASSERT_TRUE(set1(store.get()));
+        store.reset();
+      } else {
+        ASSERT_TRUE(set0(store.release()));
+      }
+
+      // The receiver now owns the only reference, but |borrowed| is still
+      // live. Replacing it with set1 must not destroy it before retaining it.
+      ASSERT_TRUE(set1(borrowed));
+      ASSERT_EQ(0, frees);
+      ASSERT_TRUE(set1(borrowed));
+      ASSERT_EQ(0, frees);
+
+      bssl::UniquePtr<X509_STORE> replacement(X509_STORE_new());
+      ASSERT_TRUE(replacement);
+      ASSERT_TRUE(X509_STORE_set_ex_data(replacement.get(), ex_index, &frees));
+      ASSERT_TRUE(set1(replacement.get()));
+      EXPECT_EQ(1, frees);
+      replacement.reset();
+      EXPECT_EQ(1, frees);
+      ASSERT_TRUE(set1(nullptr));
+      EXPECT_EQ(2, frees);
+      ASSERT_TRUE(set0(nullptr));
+      ssl.reset();
+      ctx.reset();
+      EXPECT_EQ(2, frees);
+    }
+  }
+}
+
 TEST(SSLTest, TLS13ExporterAvailability) {
   bssl::UniquePtr<SSL_CTX> client_ctx(SSL_CTX_new(TLS_method()));
   bssl::UniquePtr<SSL_CTX> server_ctx =
