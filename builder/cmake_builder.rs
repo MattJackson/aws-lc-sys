@@ -50,6 +50,20 @@ const fn cmake_nasm_small_flags(value: bool) -> &'static str {
     }
 }
 
+/// The VS setup script returns the inherited environment as well as its toolchain changes.
+/// Let CMake inherit that environment instead of adding every value to `Config::env`: cmake-rs
+/// prints explicitly supplied environment values in its command diagnostics.
+fn with_build_environment<T>(
+    environment: &HashMap<String, String>,
+    build: impl FnOnce() -> T,
+) -> T {
+    let _guards: Vec<crate::EnvGuard> = environment
+        .iter()
+        .map(|(key, value)| crate::EnvGuard::new(key, value))
+        .collect();
+    build()
+}
+
 pub(crate) struct CmakeBuilder {
     manifest_dir: PathBuf,
     out_dir: PathBuf,
@@ -410,13 +424,6 @@ impl CmakeBuilder {
     fn configure_windows(&self, cmake_cfg: &mut cmake::Config) {
         if is_fips_build() {
             cmake_cfg.generator("Ninja");
-            let env_map = self
-                .collect_vcvarsall_bat()
-                .map_err(|x| panic!("{}", x))
-                .unwrap();
-            for (key, value) in env_map {
-                cmake_cfg.env(key, value);
-            }
         }
 
         match (target_env().as_str(), target_arch().as_str()) {
@@ -491,10 +498,9 @@ impl CmakeBuilder {
         let arch = OsString::from(Self::vcvarsall_arch());
         let result = execute_command(script_path.as_os_str(), &[arch.as_os_str()]);
         if !result.status {
-            eprintln!("{}", result.stdout);
-            return Err("Failed to run vcvarsall.bat.".to_owned());
+            // stdout may contain the complete inherited environment, including credentials.
+            return Err("Failed to run vcvarsall.bat (environment output withheld).".to_owned());
         }
-        eprintln!("{}", result.stdout);
         let lines = result.stdout.lines();
         for line in lines {
             if let Some((var, val)) = line.split_once('=') {
@@ -674,9 +680,19 @@ impl CmakeBuilder {
     }
 
     fn build_library(&self) -> PathBuf {
-        self.prepare_cmake_build()
-            .configure_arg("--no-warn-unused-cli")
-            .build()
+        let environment = if target_os() == "windows" && is_fips_build() {
+            self.collect_vcvarsall_bat()
+                .unwrap_or_else(|error| panic!("{error}"))
+        } else {
+            HashMap::new()
+        };
+        // Keep the toolchain environment live through configure AND build, then restore it even
+        // if CMake fails. Implicit inheritance keeps unrelated credentials out of Command Debug.
+        with_build_environment(&environment, || {
+            self.prepare_cmake_build()
+                .configure_arg("--no-warn-unused-cli")
+                .build()
+        })
     }
 }
 
@@ -763,7 +779,67 @@ impl crate::Builder for CmakeBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::{cmake_bool, cmake_nasm_small_flags, strip_lto_flags};
+    use super::{cmake_bool, cmake_nasm_small_flags, strip_lto_flags, with_build_environment};
+    use crate::{EnvGuard, ENV_MUTEX};
+    use std::collections::HashMap;
+
+    #[test]
+    fn toolchain_environment_is_inherited_without_command_diagnostic_values() {
+        let _lock = ENV_MUTEX.lock().unwrap_or_else(|error| error.into_inner());
+        const KEY: &str = "AWS_LC_SYS_TEST_VCVARS_CANARY";
+        const CANARY: &str = "synthetic-vcvars-secret-canary";
+        let _original = EnvGuard::new(KEY, "before-build");
+        let environment = HashMap::from([(KEY.to_string(), CANARY.to_string())]);
+
+        with_build_environment(&environment, || {
+            assert_eq!(std::env::var(KEY).as_deref(), Ok(CANARY));
+            // Matches cmake-rs's diagnostic sink, without executing any compiler or reading real
+            // credentials. Explicit Config::env forwarding exposed this inherited canary here.
+            let command = std::process::Command::new("synthetic-cmake-not-executed");
+            assert!(!format!("{command:?}").contains(CANARY));
+            assert!(command.get_envs().next().is_none());
+
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .arg("toolchain_environment_child_reads_only_canary")
+                .env("AWS_LC_SYS_TEST_VCVARS_CHILD", "1");
+            assert!(!format!("{child:?}").contains(CANARY));
+            assert!(child.status().unwrap().success());
+        });
+
+        assert_eq!(std::env::var(KEY).as_deref(), Ok("before-build"));
+    }
+
+    #[test]
+    fn toolchain_environment_child_reads_only_canary() {
+        if std::env::var("AWS_LC_SYS_TEST_VCVARS_CHILD").as_deref() != Ok("1") {
+            return;
+        }
+        // Run in the test subprocess above. Read only the deterministic fixture key, never dump
+        // the inherited environment, and prove the build child receives its configured value.
+        assert_eq!(
+            std::env::var("AWS_LC_SYS_TEST_VCVARS_CANARY").as_deref(),
+            Ok("synthetic-vcvars-secret-canary")
+        );
+    }
+
+    #[test]
+    fn toolchain_environment_is_restored_when_the_build_unwinds() {
+        let _lock = ENV_MUTEX.lock().unwrap_or_else(|error| error.into_inner());
+        const KEY: &str = "AWS_LC_SYS_TEST_VCVARS_UNWIND_CANARY";
+        let _original = EnvGuard::new(KEY, "before-build");
+        let environment = HashMap::from([(KEY.to_string(), "during-build".to_string())]);
+
+        let result = std::panic::catch_unwind(|| {
+            with_build_environment(&environment, || {
+                assert_eq!(std::env::var(KEY).as_deref(), Ok("during-build"));
+                panic!("synthetic build failure");
+            });
+        });
+
+        assert!(result.is_err());
+        assert_eq!(std::env::var(KEY).as_deref(), Ok("before-build"));
+    }
 
     #[test]
     fn test_cmake_bool() {
