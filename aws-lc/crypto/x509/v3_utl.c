@@ -337,7 +337,9 @@ STACK_OF(CONF_VALUE) *X509V3_parse_list(const char *line) {
             OPENSSL_PUT_ERROR(X509V3, X509V3_R_INVALID_NULL_NAME);
             goto err;
           }
-          X509V3_add_value(ntmp, NULL, &values);
+          if (!X509V3_add_value(ntmp, NULL, &values)) {
+            goto err;
+          }
         }
         break;
 
@@ -353,7 +355,9 @@ STACK_OF(CONF_VALUE) *X509V3_parse_list(const char *line) {
             OPENSSL_PUT_ERROR(X509V3, X509V3_R_INVALID_NULL_VALUE);
             goto err;
           }
-          X509V3_add_value(ntmp, vtmp, &values);
+          if (!X509V3_add_value(ntmp, vtmp, &values)) {
+            goto err;
+          }
           ntmp = NULL;
           q = p + 1;
         }
@@ -369,7 +373,9 @@ STACK_OF(CONF_VALUE) *X509V3_parse_list(const char *line) {
       OPENSSL_PUT_ERROR(X509V3, X509V3_R_INVALID_NULL_VALUE);
       goto err;
     }
-    X509V3_add_value(ntmp, vtmp, &values);
+    if (!X509V3_add_value(ntmp, vtmp, &values)) {
+      goto err;
+    }
   } else {
     ntmp = strip_spaces(q);
 #if 0
@@ -379,7 +385,9 @@ STACK_OF(CONF_VALUE) *X509V3_parse_list(const char *line) {
       OPENSSL_PUT_ERROR(X509V3, X509V3_R_INVALID_NULL_NAME);
       goto err;
     }
-    X509V3_add_value(ntmp, NULL, &values);
+    if (!X509V3_add_value(ntmp, NULL, &values)) {
+      goto err;
+    }
   }
   OPENSSL_free(linebuf);
   return values;

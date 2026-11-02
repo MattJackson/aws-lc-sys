@@ -3282,6 +3282,73 @@ TEST(X509Test, PrintGeneralName) {
   EXPECT_STREQ(value->value, "example.com");
 }
 
+TEST(X509Test, ConfigListValues) {
+  for (const bool has_values : {false, true}) {
+    bssl::UniquePtr<STACK_OF(CONF_VALUE)> values(X509V3_parse_list(
+        has_values ? " first : one , second : two " : " first , second "));
+    ASSERT_TRUE(values);
+    ASSERT_EQ(2u, sk_CONF_VALUE_num(values.get()));
+    const CONF_VALUE *first = sk_CONF_VALUE_value(values.get(), 0);
+    const CONF_VALUE *second = sk_CONF_VALUE_value(values.get(), 1);
+    EXPECT_STREQ("first", first->name);
+    EXPECT_STREQ("second", second->name);
+    if (has_values) {
+      EXPECT_STREQ("one", first->value);
+      EXPECT_STREQ("two", second->value);
+    } else {
+      EXPECT_EQ(nullptr, first->value);
+      EXPECT_EQ(nullptr, second->value);
+    }
+  }
+
+  for (const char *input : {"first,", "first:one,second:", " :two",
+                            "first, :two"}) {
+    SCOPED_TRACE(input);
+    bssl::UniquePtr<STACK_OF(CONF_VALUE)> values(X509V3_parse_list(input));
+    EXPECT_FALSE(values);
+    ERR_clear_error();
+  }
+}
+
+TEST(X509Test, ConfigNameConstraintsPreservesPolicy) {
+  X509V3_CTX ctx;
+  X509V3_set_ctx(&ctx, nullptr, nullptr, nullptr, nullptr, 0);
+  bssl::UniquePtr<X509_EXTENSION> extension(X509V3_EXT_nconf_nid(
+      nullptr, &ctx, NID_name_constraints,
+      "permitted;DNS:.example.com,excluded;DNS:.blocked.example.com"));
+  ASSERT_TRUE(extension);
+  bssl::UniquePtr<NAME_CONSTRAINTS> constraints(
+      static_cast<NAME_CONSTRAINTS *>(X509V3_EXT_d2i(extension.get())));
+  ASSERT_TRUE(constraints);
+  ASSERT_EQ(1u, sk_GENERAL_SUBTREE_num(constraints->permittedSubtrees));
+  ASSERT_EQ(1u, sk_GENERAL_SUBTREE_num(constraints->excludedSubtrees));
+  const GENERAL_NAME *permitted =
+      sk_GENERAL_SUBTREE_value(constraints->permittedSubtrees, 0)->base;
+  const GENERAL_NAME *excluded =
+      sk_GENERAL_SUBTREE_value(constraints->excludedSubtrees, 0)->base;
+  ASSERT_EQ(GEN_DNS, permitted->type);
+  ASSERT_EQ(GEN_DNS, excluded->type);
+  EXPECT_EQ(".example.com",
+            std::string(reinterpret_cast<const char *>(
+                            ASN1_STRING_get0_data(permitted->d.dNSName)),
+                        ASN1_STRING_length(permitted->d.dNSName)));
+  EXPECT_EQ(".blocked.example.com",
+            std::string(reinterpret_cast<const char *>(
+                            ASN1_STRING_get0_data(excluded->d.dNSName)),
+                        ASN1_STRING_length(excluded->d.dNSName)));
+
+  for (const char *input : {
+           "permitted;DNS:.example.com,excluded;DNS:",
+           "permitted;DNS:.example.com,",
+           "permitted;DNS:.example.com,not-a-constraint:.blocked.example.com"}) {
+    SCOPED_TRACE(input);
+    extension.reset(X509V3_EXT_nconf_nid(nullptr, &ctx, NID_name_constraints,
+                                        input));
+    EXPECT_FALSE(extension);
+    ERR_clear_error();
+  }
+}
+
 TEST(X509Test, TestPSS) {
   bssl::UniquePtr<X509> cert(CertFromPEM(kExamplePSSCert));
   ASSERT_TRUE(cert);
