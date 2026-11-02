@@ -251,7 +251,7 @@ TEST(SSLTest, SSLNewInheritsVerifyParameters) {
   ASSERT_NE(nullptr, inherited);
   ASSERT_NE(param, inherited);
   EXPECT_EQ(7, X509_VERIFY_PARAM_get_depth(inherited));
-  EXPECT_EQ(X509_CHECK_FLAG_NO_WILDCARDS,
+  EXPECT_EQ(static_cast<unsigned>(X509_CHECK_FLAG_NO_WILDCARDS),
             X509_VERIFY_PARAM_get_hostflags(inherited));
   ASSERT_EQ(1u, sk_OPENSSL_STRING_num(inherited->hosts));
   EXPECT_STREQ(kHost, sk_OPENSSL_STRING_value(inherited->hosts, 0));
