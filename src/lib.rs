@@ -95,8 +95,41 @@ pub fn ERR_GET_FUNC(_packed_error: u32) -> i32 {
 use std::os::raw::{c_char, c_long, c_void};
 
 #[cfg(feature = "all-bindings")]
-#[allow(non_snake_case, clippy::not_unsafe_ptr_arg_deref)]
-pub fn BIO_get_mem_data(b: *mut BIO, pp: *mut *mut c_char) -> c_long {
+/// Returns the length of a memory BIO's current contents and, if `pp` is non-null,
+/// writes a pointer to those contents to `*pp`.
+///
+/// A non-positive return value can indicate either failure or an empty buffer.
+/// Prefer [`BIO_mem_contents`] when these cases need to be distinguished.
+///
+/// # Safety
+///
+/// `b` must point to a live, initialized memory BIO and remain valid throughout
+/// the call. Any installed callbacks must satisfy the contract of `BIO_ctrl`
+/// with `BIO_CTRL_INFO`. The caller must synchronize access to the BIO and its
+/// backing storage so that no conflicting access, mutation, or destruction can
+/// occur during the call.
+///
+/// `pp` may be null. Otherwise, it must be aligned and valid for writing one
+/// `*mut c_char`, with no conflicting references or overlap with storage accessed
+/// by the BIO during the call.
+///
+/// The output pointer is borrowed: this function transfers no ownership. Treat
+/// its contents as read-only, even though the pointer is mutable. The caller
+/// must keep the BIO and any externally owned backing buffer alive, and prevent
+/// operations that invalidate or change the buffer, for as long as the output
+/// is accessed. Access only the returned number of bytes after establishing
+/// that the call succeeded and the output is non-null; the data need not be
+/// NUL-terminated. An empty buffer can have a null output pointer.
+///
+/// Calling this function requires an unsafe block:
+///
+/// ```compile_fail,E0133
+/// fn requires_unsafe(bio: *mut aws_lc_sys::BIO, output: *mut *mut std::os::raw::c_char) {
+///     aws_lc_sys::BIO_get_mem_data(bio, output);
+/// }
+/// ```
+#[allow(non_snake_case)]
+pub unsafe fn BIO_get_mem_data(b: *mut BIO, pp: *mut *mut c_char) -> c_long {
     unsafe { BIO_ctrl(b, BIO_CTRL_INFO, 0, pp.cast::<c_void>()) }
 }
 
