@@ -755,6 +755,28 @@ TEST(ASN1Test, BitString) {
   }
 }
 
+TEST(ASN1Test, GetBitBounds) {
+  bssl::UniquePtr<ASN1_BIT_STRING> val(ASN1_BIT_STRING_new());
+  ASSERT_TRUE(val);
+  for (int n : {INT_MIN, -8, -1, 0, INT_MAX}) {
+    EXPECT_EQ(0, ASN1_BIT_STRING_get_bit(val.get(), n)) << n;
+  }
+
+  // Set bits on both sides of a byte boundary, including the last bit.
+  for (int n : {0, 7, 8, 15}) {
+    ASSERT_TRUE(ASN1_BIT_STRING_set_bit(val.get(), n, 1));
+  }
+  for (int n : {INT_MIN, -8, -1, 16, INT_MAX}) {
+    EXPECT_EQ(0, ASN1_BIT_STRING_get_bit(val.get(), n)) << n;
+  }
+  for (int n : {0, 7, 8, 15}) {
+    EXPECT_EQ(1, ASN1_BIT_STRING_get_bit(val.get(), n)) << n;
+  }
+  for (int n : {1, 6, 9, 14}) {
+    EXPECT_EQ(0, ASN1_BIT_STRING_get_bit(val.get(), n)) << n;
+  }
+}
+
 TEST(ASN1Test, SetBit) {
   bssl::UniquePtr<ASN1_BIT_STRING> val(ASN1_BIT_STRING_new());
   ASSERT_TRUE(val);
