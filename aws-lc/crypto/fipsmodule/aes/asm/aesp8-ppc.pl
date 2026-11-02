@@ -78,11 +78,24 @@ $prefix="aes_hw";
 $sp="r1";
 $vrsave="r12";
 
+# Store a complete, already rotated vector without rewriting neighboring bytes.
+# r0 is dead at these call sites. It must be RB, since RA=0 means a zero base.
+sub store16 {
+    my ($vector, $base, $width) = @_;
+    my $op = $width == 4 ? "stvewx" : "stvebx";
+    my $text = "\t$op\t\t$vector,0,$base\n";
+    for (my $i = $width; $i < 16; $i += $width) {
+        $text .= "\tli\t\tr0,$i\n\t$op\t\t$vector,$base,r0\n";
+    }
+    return $text;
+}
+
 #########################################################################
 {{{	# Key setup procedures						#
 my ($inp,$bits,$out,$ptr,$cnt,$rounds)=map("r$_",(3..8));
 my ($zero,$in0,$in1,$key,$rcon,$mask,$tmp)=map("v$_",(0..6));
 my ($stage,$outperm,$outmask,$outhead,$outtail)=map("v$_",(7..11));
+my $store_round_key = store16($outtail, $out, 4); # AES_KEY is word-aligned.
 
 $code.=<<___;
 .machine	"any"
@@ -169,7 +182,7 @@ Loop128:
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
 	vcipherlast	$key,$key,$rcon
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 
 	vxor		$in0,$in0,$tmp
@@ -189,7 +202,7 @@ Loop128:
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
 	vcipherlast	$key,$key,$rcon
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 
 	vxor		$in0,$in0,$tmp
@@ -206,7 +219,7 @@ Loop128:
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
 	vcipherlast	$key,$key,$rcon
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 
 	vxor		$in0,$in0,$tmp
@@ -218,8 +231,7 @@ Loop128:
 	 vperm		$outtail,$in0,$in0,$outperm	# rotate
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
-	 stvx		$stage,0,$out
-
+$store_round_key
 	addi		$inp,$out,15		# 15 is not typo
 	addi		$out,$out,0x50
 
@@ -233,7 +245,7 @@ L192:
 	 vperm		$outtail,$in0,$in0,$outperm	# rotate
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 	vperm		$in1,$in1,$tmp,$key	# align [and byte swap in LE]
 	vspltisb	$key,8			# borrow $key
@@ -267,7 +279,7 @@ Loop192:
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
 	vcipherlast	$key,$key,$rcon
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 
 	 vsldoi		$stage,$in0,$in1,8
@@ -279,7 +291,7 @@ Loop192:
 	vxor		$in0,$in0,$tmp
 	vsldoi		$tmp,$zero,$tmp,12	# >>32
 	vxor		$in0,$in0,$tmp
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 
 	vspltw		$tmp,$in0,3
@@ -292,7 +304,7 @@ Loop192:
 	 vperm		$outtail,$in0,$in0,$outperm	# rotate
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$inp,$out,15		# 15 is not typo
 	 addi		$out,$out,16
 	bdnz		Loop192
@@ -309,7 +321,7 @@ L256:
 	 vperm		$outtail,$in0,$in0,$outperm	# rotate
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 	vperm		$in1,$in1,$tmp,$key	# align [and byte swap in LE]
 	mtctr		$cnt
@@ -321,7 +333,7 @@ Loop256:
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
 	vcipherlast	$key,$key,$rcon
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$out,$out,16
 
 	vxor		$in0,$in0,$tmp
@@ -334,7 +346,7 @@ Loop256:
 	 vperm		$outtail,$in0,$in0,$outperm	# rotate
 	 vsel		$stage,$outhead,$outtail,$outmask
 	 vmr		$outhead,$outtail
-	 stvx		$stage,0,$out
+$store_round_key
 	 addi		$inp,$out,15		# 15 is not typo
 	 addi		$out,$out,16
 	bdz		Ldone
@@ -356,7 +368,7 @@ Loop256:
 Ldone:
 	lvx		$in1,0,$inp		# redundant in aligned case
 	vsel		$in1,$outhead,$in1,$outmask
-	stvx		$in1,0,$inp
+	# The final round-key bytes were already stored without a boundary merge.
 	li		$ptr,0
 	mtspr		256,$vrsave
 	stw		$rounds,0($out)
@@ -505,6 +517,8 @@ my ($inp,$out,$len,$key,$ivp,$enc,$rounds,$idx)=map("r$_",(3..10));
 my ($rndkey0,$rndkey1,$inout,$tmp)=		map("v$_",(0..3));
 my ($ivec,$inptail,$inpperm,$outhead,$outperm,$outmask,$keyperm)=
 						map("v$_",(4..10));
+my $store_cbc_block = store16($tmp, $out, 1);
+my $store_cbc_iv = store16($ivec, $ivp, 1);
 $code.=<<___;
 .globl	.${prefix}_cbc_encrypt
 .align	5
@@ -586,7 +600,7 @@ Loop_cbc_enc:
 	vperm		$tmp,$ivec,$ivec,$outperm
 	vsel		$inout,$outhead,$tmp,$outmask
 	vmr		$outhead,$tmp
-	stvx		$inout,0,$out
+$store_cbc_block
 	addi		$out,$out,16
 	bge		Lcbc_enc
 
@@ -635,7 +649,7 @@ Loop_cbc_dec:
 	vperm		$tmp,$inout,$inout,$outperm
 	vsel		$inout,$outhead,$tmp,$outmask
 	vmr		$outhead,$tmp
-	stvx		$inout,0,$out
+$store_cbc_block
 	addi		$out,$out,16
 	bge		Lcbc_dec
 
@@ -643,7 +657,7 @@ Lcbc_done:
 	addi		$out,$out,-1
 	lvx		$inout,0,$out		# redundant in aligned case
 	vsel		$inout,$outhead,$inout,$outmask
-	stvx		$inout,0,$out
+	# All logical output bytes were already stored.
 
 	neg		$enc,$ivp		# write [unaligned] iv
 	li		$idx,15			# 15 is not typo
@@ -657,10 +671,8 @@ Lcbc_done:
 	vperm		$ivec,$ivec,$ivec,$outperm
 	vsel		$inout,$outhead,$ivec,$outmask
 	lvx		$inptail,$idx,$ivp
-	stvx		$inout,0,$ivp
 	vsel		$inout,$ivec,$inptail,$outmask
-	stvx		$inout,$idx,$ivp
-
+$store_cbc_iv
 	mtspr		256,$vrsave
 	blr
 	.long		0
@@ -1264,6 +1276,7 @@ my ($rndkey0,$rndkey1,$inout,$tmp)=		map("v$_",(0..3));
 my ($ivec,$inptail,$inpperm,$outhead,$outperm,$outmask,$keyperm,$one)=
 						map("v$_",(4..11));
 my $dat=$tmp;
+my $store_ctr_block = store16($outhead, $out, 1);
 
 $code.=<<___;
 .globl	.${prefix}_ctr32_encrypt_blocks
@@ -1358,14 +1371,14 @@ Loop_ctr32_enc:
 	 vxor		$inout,$ivec,$rndkey0
 	 lvx		$rndkey0,$idx,$key
 	 addi		$idx,$idx,16
-	stvx		$dat,0,$out
+$store_ctr_block
 	addi		$out,$out,16
 	bne		Loop_ctr32_enc
 
 	addi		$out,$out,-1
 	lvx		$inout,0,$out		# redundant in aligned case
 	vsel		$inout,$outhead,$inout,$outmask
-	stvx		$inout,0,$out
+	# All logical output bytes were already stored.
 
 	mtspr		256,$vrsave
 	blr

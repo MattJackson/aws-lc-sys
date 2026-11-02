@@ -94,7 +94,14 @@ aes_hw_set_encrypt_key:
 	vsel	7,10,11,9
 	vor	10,11,11
 	.long	0x10632509
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 
 	vxor	1,1,6
@@ -114,7 +121,14 @@ aes_hw_set_encrypt_key:
 	vsel	7,10,11,9
 	vor	10,11,11
 	.long	0x10632509
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 
 	vxor	1,1,6
@@ -131,7 +145,14 @@ aes_hw_set_encrypt_key:
 	vsel	7,10,11,9
 	vor	10,11,11
 	.long	0x10632509
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 
 	vxor	1,1,6
@@ -143,7 +164,13 @@ aes_hw_set_encrypt_key:
 	vperm	11,1,1,8
 	vsel	7,10,11,9
 	vor	10,11,11
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
 
 	addi	3,5,15
 	addi	5,5,0x50
@@ -158,7 +185,14 @@ aes_hw_set_encrypt_key:
 	vperm	11,1,1,8
 	vsel	7,10,11,9
 	vor	10,11,11
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 	vperm	2,2,6,3
 	vspltisb	3,8
@@ -192,7 +226,14 @@ aes_hw_set_encrypt_key:
 	vsel	7,10,11,9
 	vor	10,11,11
 	.long	0x10632509
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 
 	vsldoi	7,1,2,8
@@ -204,7 +245,14 @@ aes_hw_set_encrypt_key:
 	vxor	1,1,6
 	vsldoi	6,0,6,12
 	vxor	1,1,6
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 
 	vspltw	6,1,3
@@ -217,7 +265,14 @@ aes_hw_set_encrypt_key:
 	vperm	11,1,1,8
 	vsel	7,10,11,9
 	vor	10,11,11
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	3,5,15
 	addi	5,5,16
 	bdnz	.Loop192
@@ -234,7 +289,14 @@ aes_hw_set_encrypt_key:
 	vperm	11,1,1,8
 	vsel	7,10,11,9
 	vor	10,11,11
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 	vperm	2,2,6,3
 	mtctr	7
@@ -246,7 +308,14 @@ aes_hw_set_encrypt_key:
 	vsel	7,10,11,9
 	vor	10,11,11
 	.long	0x10632509
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	5,5,16
 
 	vxor	1,1,6
@@ -259,7 +328,14 @@ aes_hw_set_encrypt_key:
 	vperm	11,1,1,8
 	vsel	7,10,11,9
 	vor	10,11,11
-	stvx	7,0,5
+	stvewx	11,0,5
+	li	0,4
+	stvewx	11,5,0
+	li	0,8
+	stvewx	11,5,0
+	li	0,12
+	stvewx	11,5,0
+
 	addi	3,5,15
 	addi	5,5,16
 	bdz	.Ldone
@@ -281,7 +357,7 @@ aes_hw_set_encrypt_key:
 .Ldone:
 	lvx	2,0,3
 	vsel	2,10,2,9
-	stvx	2,0,3
+
 	li	6,0
 	or	12,12,12
 	stw	8,0(5)
@@ -619,7 +695,38 @@ aes_hw_cbc_encrypt:
 	vperm	3,4,4,8
 	vsel	2,7,3,9
 	vor	7,3,3
-	stvx	2,0,4
+	stvebx	3,0,4
+	li	0,1
+	stvebx	3,4,0
+	li	0,2
+	stvebx	3,4,0
+	li	0,3
+	stvebx	3,4,0
+	li	0,4
+	stvebx	3,4,0
+	li	0,5
+	stvebx	3,4,0
+	li	0,6
+	stvebx	3,4,0
+	li	0,7
+	stvebx	3,4,0
+	li	0,8
+	stvebx	3,4,0
+	li	0,9
+	stvebx	3,4,0
+	li	0,10
+	stvebx	3,4,0
+	li	0,11
+	stvebx	3,4,0
+	li	0,12
+	stvebx	3,4,0
+	li	0,13
+	stvebx	3,4,0
+	li	0,14
+	stvebx	3,4,0
+	li	0,15
+	stvebx	3,4,0
+
 	addi	4,4,16
 	bge	.Lcbc_enc
 
@@ -668,7 +775,38 @@ aes_hw_cbc_encrypt:
 	vperm	3,2,2,8
 	vsel	2,7,3,9
 	vor	7,3,3
-	stvx	2,0,4
+	stvebx	3,0,4
+	li	0,1
+	stvebx	3,4,0
+	li	0,2
+	stvebx	3,4,0
+	li	0,3
+	stvebx	3,4,0
+	li	0,4
+	stvebx	3,4,0
+	li	0,5
+	stvebx	3,4,0
+	li	0,6
+	stvebx	3,4,0
+	li	0,7
+	stvebx	3,4,0
+	li	0,8
+	stvebx	3,4,0
+	li	0,9
+	stvebx	3,4,0
+	li	0,10
+	stvebx	3,4,0
+	li	0,11
+	stvebx	3,4,0
+	li	0,12
+	stvebx	3,4,0
+	li	0,13
+	stvebx	3,4,0
+	li	0,14
+	stvebx	3,4,0
+	li	0,15
+	stvebx	3,4,0
+
 	addi	4,4,16
 	bge	.Lcbc_dec
 
@@ -676,7 +814,7 @@ aes_hw_cbc_encrypt:
 	addi	4,4,-1
 	lvx	2,0,4
 	vsel	2,7,2,9
-	stvx	2,0,4
+
 
 	neg	8,7
 	li	10,15
@@ -690,9 +828,38 @@ aes_hw_cbc_encrypt:
 	vperm	4,4,4,8
 	vsel	2,7,4,9
 	lvx	5,10,7
-	stvx	2,0,7
 	vsel	2,4,5,9
-	stvx	2,10,7
+	stvebx	4,0,7
+	li	0,1
+	stvebx	4,7,0
+	li	0,2
+	stvebx	4,7,0
+	li	0,3
+	stvebx	4,7,0
+	li	0,4
+	stvebx	4,7,0
+	li	0,5
+	stvebx	4,7,0
+	li	0,6
+	stvebx	4,7,0
+	li	0,7
+	stvebx	4,7,0
+	li	0,8
+	stvebx	4,7,0
+	li	0,9
+	stvebx	4,7,0
+	li	0,10
+	stvebx	4,7,0
+	li	0,11
+	stvebx	4,7,0
+	li	0,12
+	stvebx	4,7,0
+	li	0,13
+	stvebx	4,7,0
+	li	0,14
+	stvebx	4,7,0
+	li	0,15
+	stvebx	4,7,0
 
 	or	12,12,12
 	blr	
@@ -1369,14 +1536,45 @@ aes_hw_ctr32_encrypt_blocks:
 	vxor	2,4,0
 	lvx	0,10,6
 	addi	10,10,16
-	stvx	3,0,4
+	stvebx	7,0,4
+	li	0,1
+	stvebx	7,4,0
+	li	0,2
+	stvebx	7,4,0
+	li	0,3
+	stvebx	7,4,0
+	li	0,4
+	stvebx	7,4,0
+	li	0,5
+	stvebx	7,4,0
+	li	0,6
+	stvebx	7,4,0
+	li	0,7
+	stvebx	7,4,0
+	li	0,8
+	stvebx	7,4,0
+	li	0,9
+	stvebx	7,4,0
+	li	0,10
+	stvebx	7,4,0
+	li	0,11
+	stvebx	7,4,0
+	li	0,12
+	stvebx	7,4,0
+	li	0,13
+	stvebx	7,4,0
+	li	0,14
+	stvebx	7,4,0
+	li	0,15
+	stvebx	7,4,0
+
 	addi	4,4,16
 	bne	.Loop_ctr32_enc
 
 	addi	4,4,-1
 	lvx	2,0,4
 	vsel	2,7,2,9
-	stvx	2,0,4
+
 
 	or	12,12,12
 	blr	

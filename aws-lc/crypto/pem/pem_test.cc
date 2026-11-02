@@ -48,7 +48,7 @@ TEST(PEMTest, NoRC4) {
 }
 
 TEST(PEMTest, CipherInfoRequiresComma) {
-  auto check_bad_iv = [](auto &header) {
+  auto check_bad_iv = [](char *header) {
     const std::string original(header);
     EVP_CIPHER_INFO cipher;
     ERR_clear_error();
@@ -80,7 +80,7 @@ TEST(PEMTest, CipherInfoRequiresComma) {
 }
 
 TEST(PEMTest, CipherInfoRejectsShortIV) {
-  auto check_bad_iv = [](auto &header) {
+  auto check_bad_iv = [](char *header) {
     EVP_CIPHER_INFO cipher;
     ERR_clear_error();
     EXPECT_FALSE(PEM_get_EVP_CIPHER_INFO(header, &cipher));
@@ -98,7 +98,7 @@ TEST(PEMTest, CipherInfoRejectsShortIV) {
 TEST(PEMTest, CipherInfoLegacyCiphers) {
   const uint8_t kIV[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
-  auto check_cipher = [&](auto &header, const EVP_CIPHER *expected) {
+  auto check_cipher = [&](char *header, const EVP_CIPHER *expected) {
     const std::string original(header);
     EVP_CIPHER_INFO cipher;
     ERR_clear_error();
